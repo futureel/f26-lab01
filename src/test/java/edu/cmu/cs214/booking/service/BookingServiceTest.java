@@ -58,4 +58,18 @@ class BookingServiceTest {
         svc.book(roomA, bob, new TimeInterval(660, 720));
         assertEquals(2, svc.listBookings(roomA).size());
     }
+
+    /**
+     * Regression test: bookingsForRoom must return only the bookings held for that
+     * room, not all bookings across all rooms. The original bug returned every booking
+     * regardless of room, causing bookings in other rooms to be treated as conflicts.
+     */
+    @Test
+    void listBookingsIsScopedToOneRoom() {
+        BookingService svc = newService();
+        svc.book(roomA, alice, new TimeInterval(600, 660));
+        svc.book(roomB, bob, new TimeInterval(600, 660));
+        assertEquals(1, svc.listBookings(roomA).size());
+        assertEquals(1, svc.listBookings(roomB).size());
+    }
 }
