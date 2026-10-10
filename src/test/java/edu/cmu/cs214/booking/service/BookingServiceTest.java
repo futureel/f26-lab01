@@ -18,6 +18,8 @@ class BookingServiceTest {
     private final Room roomB = new Room("B", "Beta", 4);
     private final User alice = new User("u1", "Alice");
     private final User bob = new User("u2", "Bob");
+    private final User carol = new User("u3", "Carol");
+    private final User dave = new User("u4", "Dave");
 
     private BookingService newService() {
         return new BookingService(new InMemoryBookingStore());
@@ -123,5 +125,64 @@ class BookingServiceTest {
         assertEquals(bob.id(), roomABookings.get(0).user().id());
         assertEquals(new TimeInterval(630, 700), roomABookings.get(0).interval());
         assertTrue(store.waitlistForRoom(roomA).isEmpty());
+    }
+
+    // ---- cancelBooking: step 3 — FCFS, skip-on-conflict, room isolation ----
+
+    @Test
+    void promotesOnlyOneEvenWhenMultipleWaitersFit() {
+        // S4: Alice holds [600,720); Bob [600,660) and Carol [660,700) both wait.
+        // After Alice cancels, both slots are free, but only the earliest waiter gets promoted.
+        InMemoryBookingStore store = new InMemoryBookingStore();
+        BookingService svc = new BookingService(store);
+        String aliceId = ((BookingResult.Confirmed) svc.book(roomA, alice, new TimeInterval(600, 720))).booking().id();
+        assertInstanceOf(BookingResult.Waitlisted.class, svc.book(roomA, bob, new TimeInterval(600, 660)));
+        assertInstanceOf(BookingResult.Waitlisted.class, svc.book(roomA, carol, new TimeInterval(660, 700)));
+
+        svc.cancelBooking(aliceId);
+
+        List<Booking> bookings = store.bookingsForRoom(roomA);
+        assertEquals(1, bookings.size());
+        assertEquals(bob.id(), bookings.get(0).user().id()); // earliest waiter promoted
+        assertEquals(1, store.waitlistForRoom(roomA).size()); // Carol still waiting
+    }
+
+    @Test
+    void skipsWaiterStillConflictingWithAnotherBooking() {
+        // S5: Alice [600,660) and Dave [700,760) both confirmed.
+        // Bob [630,730) waits first (still overlaps Dave), Carol [610,650) waits later (fits).
+        // After Alice cancels, Bob must be skipped because of Dave, Carol promoted.
+        InMemoryBookingStore store = new InMemoryBookingStore();
+        BookingService svc = new BookingService(store);
+        String aliceId = ((BookingResult.Confirmed) svc.book(roomA, alice, new TimeInterval(600, 660))).booking().id();
+        svc.book(roomA, dave, new TimeInterval(700, 760));
+        assertInstanceOf(BookingResult.Waitlisted.class, svc.book(roomA, bob, new TimeInterval(630, 730)));
+        assertInstanceOf(BookingResult.Waitlisted.class, svc.book(roomA, carol, new TimeInterval(610, 650)));
+
+        svc.cancelBooking(aliceId);
+
+        List<Booking> bookings = store.bookingsForRoom(roomA);
+        assertEquals(2, bookings.size()); // Dave + Carol promoted
+        assertTrue(bookings.stream().anyMatch(b -> b.user().id().equals(dave.id())));
+        assertTrue(bookings.stream().anyMatch(b -> b.user().id().equals(carol.id())));
+        assertEquals(1, store.waitlistForRoom(roomA).size()); // Bob still waiting
+        assertTrue(store.waitlistForRoom(roomA).stream().allMatch(w -> w.user().id().equals(bob.id())));
+    }
+
+    @Test
+    void doesNotPromoteWaitersFromAnotherRoom() {
+        // S6: Alice holds a booking in roomA; roomB is taken by Carol, so Bob waits in roomB.
+        // Cancelling Alice must not promote Bob (who is waiting for roomB).
+        InMemoryBookingStore store = new InMemoryBookingStore();
+        BookingService svc = new BookingService(store);
+        String aliceId = ((BookingResult.Confirmed) svc.book(roomA, alice, new TimeInterval(600, 660))).booking().id();
+        svc.book(roomB, carol, new TimeInterval(600, 660)); // roomB is taken
+        assertInstanceOf(BookingResult.Waitlisted.class, svc.book(roomB, bob, new TimeInterval(600, 660)));
+
+        svc.cancelBooking(aliceId);
+
+        assertTrue(store.bookingsForRoom(roomA).isEmpty());
+        assertEquals(1, store.bookingsForRoom(roomB).size()); // Carol still holds roomB
+        assertEquals(1, store.waitlistForRoom(roomB).size()); // Bob still on roomB waitlist
     }
 }
