@@ -72,4 +72,33 @@ class BookingServiceTest {
         assertEquals(1, svc.listBookings(roomA).size());
         assertEquals(1, svc.listBookings(roomB).size());
     }
+
+    // ---- cancelBooking: step 1 — removal and unknown-id handling ----
+
+    @Test
+    void cancelBookingRemovesTheBooking() {
+        InMemoryBookingStore store = new InMemoryBookingStore();
+        BookingService svc = new BookingService(store);
+        BookingResult first = svc.book(roomA, alice, new TimeInterval(600, 660));
+        String bookingId = ((BookingResult.Confirmed) first).booking().id();
+        assertEquals(1, store.bookingsForRoom(roomA).size());
+
+        svc.cancelBooking(bookingId);
+
+        assertEquals(0, store.bookingsForRoom(roomA).size());
+    }
+
+    @Test
+    void cancelUnknownIdDoesNothing() {
+        InMemoryBookingStore store = new InMemoryBookingStore();
+        BookingService svc = new BookingService(store);
+        svc.book(roomA, alice, new TimeInterval(600, 660));
+        svc.book(roomA, bob, new TimeInterval(630, 700)); // waitlisted
+
+        svc.cancelBooking("does-not-exist");
+
+        // Booking still there, waitlist untouched.
+        assertEquals(1, store.bookingsForRoom(roomA).size());
+        assertEquals(1, store.waitlistForRoom(roomA).size());
+    }
 }
