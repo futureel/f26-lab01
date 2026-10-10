@@ -25,3 +25,9 @@ By the way: the fix may not be where the failing test first points you. :-)
 - Transcript export script (for Claude Code; modify if using a different tool): `tools/export-transcripts.sh` (the handout tells you when to run it)
 
 See the Lab 1 handout on the course page for the three milestones you show a TA.
+
+## 工具与模型声明
+
+- 工具：Claude Code（命令行）；IDE：IntelliJ IDEA
+- 模型：Claude（代码协助、审查 diff）
+- 组员：张宇航、彭天赐、袁有为、陈洲（第一组）
