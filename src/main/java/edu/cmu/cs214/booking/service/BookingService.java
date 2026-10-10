@@ -7,6 +7,7 @@ import edu.cmu.cs214.booking.domain.User;
 import edu.cmu.cs214.booking.domain.WaitlistEntry;
 import edu.cmu.cs214.booking.repo.BookingStore;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Coordinates bookings and the waitlist. Enforces the core invariant: a room
@@ -49,9 +50,36 @@ public class BookingService {
 
     /**
      * Cancels the confirmed booking with the given id, freeing its slot.
-     * If no booking has that id, does nothing. (Promotion logic comes next.)
+     * If no booking has that id, does nothing. After removal, promotes at most one
+     * waitlisted user from the same room (first-come-first-served by seq) whose
+     * interval no longer overlaps any remaining confirmed booking.
      */
     public void cancelBooking(String bookingId) {
-        store.findBooking(bookingId).ifPresent(b -> store.removeBooking(b.id()));
+        Optional<Booking> victim = store.findBooking(bookingId);
+        if (victim.isEmpty()) {
+            return;
+        }
+        Room room = victim.get().room();
+        store.removeBooking(bookingId);
+
+        // Promote the earliest waiter whose interval is now free (at most one).
+        List<WaitlistEntry> waiters = new java.util.ArrayList<>(store.waitlistForRoom(room));
+        waiters.sort(java.util.Comparator.comparingInt(WaitlistEntry::seq));
+        for (WaitlistEntry w : waiters) {
+            boolean conflicts = false;
+            for (Booking remaining : store.bookingsForRoom(room)) {
+                if (w.interval().overlaps(remaining.interval())) {
+                    conflicts = true;
+                    break;
+                }
+            }
+            if (!conflicts) {
+                store.removeWaitlistEntry(w.id());
+                Booking promoted = new Booking(
+                        "b" + nextBookingSeq++, w.room(), w.user(), w.interval());
+                store.addBooking(promoted);
+                break;
+            }
+        }
     }
 }
